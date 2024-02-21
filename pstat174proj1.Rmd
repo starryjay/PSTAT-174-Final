@@ -1,0 +1,147 @@
+---
+title: "PSTAT 174 Final Project"
+author: "Jay Shreedhar"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Results
+
+House Price Index data: <https://fred.stlouisfed.org/series/ATNHPIUS41940Q>
+
+Unemployment Rate data: <https://fred.stlouisfed.org/series/SANJ906URN>
+
+Before reading in the data, I manually removed all rows prior to 1990 and after Jan 1, 2022 so that all the time series matched up. This also means we do not have data after Q1 2022 in the `hpi1990` and `unemployment` time series --- fortunately, the original dataset contains data for Q2-Q4 2022, so we can compare the model forecast to actual measurements and find out how accurate it is.
+
+```{r, message=FALSE}
+# open necessary libraries, go into necessary directory
+library(astsa)
+library(forecast)
+library(dplyr)
+setwd('/Users/shobhanashreedhar/R/PSTAT 174')
+# read CSV file
+hpicsv <- read.csv('RealEstateTimeSeries.csv')
+hpi1990csv <- read.csv('RealEstateTimeSeries1990.csv')
+unempcsv <- read.csv('UnemploymentRate.csv')
+```
+
+```{r}
+# convert to time series
+hpi <- ts(subset(hpicsv, select=-DATE), start = c(1975, 3), frequency=4)
+hpi1990 <- ts(subset(hpi1990csv, select=-DATE), start=c(1990, 1), frequency=4)
+unempl <- ts(subset(unempcsv, select=-DATE), start=c(1990, 1), frequency=12)
+```
+
+```{r}
+# convert non-quarterly time series to quarterly
+unemployment <- aggregate.ts(unempl, nfrequency=4, FUN='mean')
+```
+
+## Fitting a univariate SARIMA model
+
+### Initial investigation
+
+```{r}
+# plotting the time series and log of the time series to see which is better modeled
+plot.ts(hpi)
+```
+
+```{r}
+plot.ts(log(hpi))
+```
+
+### Determining stationarity
+
+```{r}
+# running auto arima to find the best models 
+# and AIC values for both the original time 
+# series and the log
+auto.arima(hpi, seasonal=TRUE)
+```
+
+```{r}
+auto.arima(log(hpi), seasonal=TRUE)
+```
+
+```{r}
+
+y <- log(hpi)
+
+acf(y)
+
+pacf(y)
+```
+
+```{r}
+
+y1 <- diff(y)
+acf(y1)
+pacf(y1)
+```
+
+```{r}
+y2 <- diff(y1, 4)
+acf(y2)
+pacf(y2)
+```
+
+### Model fitting and diagnostics
+
+```{r}
+auto.arima(y2)
+```
+
+```{r}
+
+sarima(y2, 3, 0, 0, 2, 0, 2, 4)
+
+```
+
+### Forecasting next 12 months
+
+Next, we will forecast the next 4 quarters of house price index fluctuations.
+
+```{r}
+
+sarima.for(diff(log(hpi)), 4, 3, 0, 0, 2, 0, 2, 4)
+
+```
+
+## Multivariate SARIMAX model
+
+### Finding the best model parameters
+
+```{r}
+y3 <- diff(diff(log(hpi1990)), 4)
+y4 <- diff(diff(log(unemployment)), 4)
+auto.arima(y3, xreg = y4, ic = "aic", trace = TRUE)
+
+```
+
+### Diagnostics
+
+```{r}
+
+sarima(y3, xreg=y4, 2, 0, 1, 2, 0, 0, 4)
+
+```
+
+### Forecasting next 12 months
+
+```{r}
+
+model <- sarima.for(y3, n.ahead=4, p=2, d=0, q=1, P=2, D=0, Q=0, S=4, 
+                    xreg = y4, newxreg=diff(diff(log(c(2.966666666667, 2.1333333, 
+                                                       2.266666666666667, 2.233333333333333, 3.15)))))
+model
+```
+
+```{r}
+
+plot.ts(diff(log(hpi)))
+
+```
